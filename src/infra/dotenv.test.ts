@@ -97,7 +97,7 @@ describe("loadDotEnv", () => {
     });
   });
 
-  it("blocks dangerous and workspace-control vars from CWD .env", async () => {
+  it("blocks dangerous and workspace-control vars from CWD .env (except project-level path overrides)", async () => {
     await withIsolatedEnvAndCwd(async () => {
       await withDotEnvFixture(async ({ cwdDir, stateDir }) => {
         await writeEnvFile(
@@ -105,8 +105,8 @@ describe("loadDotEnv", () => {
           [
             "SAFE_KEY=from-cwd",
             "NODE_OPTIONS=--require ./evil.js",
-            "OPENCLAW_STATE_DIR=./evil-state",
-            "OPENCLAW_CONFIG_PATH=./evil-config.json",
+            "OPENCLAW_STATE_DIR=./project-state",
+            "OPENCLAW_CONFIG_PATH=./project-config.json",
             "ANTHROPIC_BASE_URL=https://evil.example.com/v1",
             "HTTP_PROXY=http://evil-proxy:8080",
           ].join("\n"),
@@ -125,20 +125,21 @@ describe("loadDotEnv", () => {
         expect(process.env.SAFE_KEY).toBe("from-cwd");
         expect(process.env.BAR).toBe("from-global");
         expect(process.env.NODE_OPTIONS).toBeUndefined();
-        expect(process.env.OPENCLAW_STATE_DIR).toBe(stateDir);
-        expect(process.env.OPENCLAW_CONFIG_PATH).toBeUndefined();
+        // Project-level path overrides ARE allowed from workspace .env
+        expect(process.env.OPENCLAW_STATE_DIR).toBe("./project-state");
+        expect(process.env.OPENCLAW_CONFIG_PATH).toBe("./project-config.json");
         expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined();
         expect(process.env.HTTP_PROXY).toBeUndefined();
       });
     });
   });
 
-  it("blocks OPENCLAW_STATE_DIR from workspace .env even when unset in process env", async () => {
+  it("allows OPENCLAW_STATE_DIR and OPENCLAW_CONFIG_PATH from workspace .env (project-level overrides)", async () => {
     await withIsolatedEnvAndCwd(async () => {
       await withDotEnvFixture(async ({ cwdDir }) => {
         await writeEnvFile(
           path.join(cwdDir, ".env"),
-          "OPENCLAW_STATE_DIR=./evil-state\nOPENCLAW_CONFIG_PATH=./evil-config.json\n",
+          "OPENCLAW_STATE_DIR=./project-state\nOPENCLAW_CONFIG_PATH=./project-config.json\n",
         );
 
         delete process.env.OPENCLAW_STATE_DIR;
@@ -146,8 +147,8 @@ describe("loadDotEnv", () => {
 
         loadWorkspaceDotEnvFile(path.join(cwdDir, ".env"), { quiet: true });
 
-        expect(process.env.OPENCLAW_STATE_DIR).toBeUndefined();
-        expect(process.env.OPENCLAW_CONFIG_PATH).toBeUndefined();
+        expect(process.env.OPENCLAW_STATE_DIR).toBe("./project-state");
+        expect(process.env.OPENCLAW_CONFIG_PATH).toBe("./project-config.json");
       });
     });
   });
@@ -217,32 +218,31 @@ describe("loadDotEnv", () => {
 });
 
 describe("loadCliDotEnv", () => {
-  it("blocks OPENCLAW_STATE_DIR from workspace .env even when unset in process env", async () => {
+  it("allows OPENCLAW_STATE_DIR from workspace .env as a project-level override", async () => {
     await withIsolatedEnvAndCwd(async () => {
       await withDotEnvFixture(async ({ cwdDir }) => {
-        await writeEnvFile(path.join(cwdDir, ".env"), "OPENCLAW_STATE_DIR=./evil-state\n");
+        await writeEnvFile(path.join(cwdDir, ".env"), "OPENCLAW_STATE_DIR=./project-state\n");
 
-        // Delete the fixture-provided value so the blocking must come from
-        // the workspace blocklist, not the "already set" skip.
+        // Delete the fixture-provided value to test that workspace .env loads it
         delete process.env.OPENCLAW_STATE_DIR;
         vi.spyOn(process, "cwd").mockReturnValue(cwdDir);
 
         loadCliDotEnv({ quiet: true });
 
-        expect(process.env.OPENCLAW_STATE_DIR).toBeUndefined();
+        expect(process.env.OPENCLAW_STATE_DIR).toBe("./project-state");
       });
     });
   });
 
-  it("blocks workspace .env takeover vars before loading the global fallback", async () => {
+  it("allows project-level OPENCLAW_STATE_DIR and OPENCLAW_CONFIG_PATH from workspace .env", async () => {
     await withIsolatedEnvAndCwd(async () => {
       await withDotEnvFixture(async ({ cwdDir, stateDir }) => {
         await writeEnvFile(
           path.join(cwdDir, ".env"),
           [
             "SAFE_KEY=from-cwd",
-            "OPENCLAW_STATE_DIR=./evil-state",
-            "OPENCLAW_CONFIG_PATH=./evil-config.json",
+            "OPENCLAW_STATE_DIR=./project-state",
+            "OPENCLAW_CONFIG_PATH=./project-config.json",
             "NODE_OPTIONS=--require ./evil.js",
             "ANTHROPIC_BASE_URL=https://evil.example.com/v1",
           ].join("\n"),
@@ -260,8 +260,9 @@ describe("loadCliDotEnv", () => {
 
         expect(process.env.SAFE_KEY).toBe("from-cwd");
         expect(process.env.BAR).toBe("from-global");
-        expect(process.env.OPENCLAW_STATE_DIR).toBe(stateDir);
-        expect(process.env.OPENCLAW_CONFIG_PATH).toBeUndefined();
+        // Project-level overrides should be loaded from workspace .env
+        expect(process.env.OPENCLAW_STATE_DIR).toBe("./project-state");
+        expect(process.env.OPENCLAW_CONFIG_PATH).toBe("./project-config.json");
         expect(process.env.NODE_OPTIONS).toBeUndefined();
         expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined();
       });
