@@ -1,3 +1,5 @@
+// HTTP authorization utility tests protect gateway request authorization,
+// declared operator scopes, origin handling, and failure response routing.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -5,8 +7,29 @@ vi.mock("./auth.js", () => ({
   authorizeHttpGatewayConnect: vi.fn(),
 }));
 
+vi.mock("../config/config.js", () => ({
+  getRuntimeConfig: vi.fn(() => ({
+    gateway: {
+      controlUi: {
+        allowedOrigins: ["https://control.example.com"],
+      },
+    },
+  })),
+}));
+
+vi.mock("../config/io.js", () => ({
+  getRuntimeConfig: vi.fn(() => ({
+    gateway: {
+      controlUi: {
+        allowedOrigins: ["https://control.example.com"],
+      },
+    },
+  })),
+}));
+
 vi.mock("./http-common.js", () => ({
   sendGatewayAuthFailure: vi.fn(),
+  sendJson: vi.fn(),
 }));
 
 const { authorizeHttpGatewayConnect } = await import("./auth.js");
@@ -63,6 +86,39 @@ describe("authorizeGatewayHttpRequestOrReply", () => {
     ).resolves.toEqual({
       authMethod: "trusted-proxy",
       trustDeclaredOperatorScopes: true,
+    });
+  });
+
+  it("forwards browser-origin policy into HTTP auth", async () => {
+    vi.mocked(authorizeHttpGatewayConnect).mockResolvedValue({
+      ok: true,
+      method: "trusted-proxy",
+      user: "operator",
+    });
+
+    await authorizeGatewayHttpRequestOrReply({
+      req: createReq({
+        host: "gateway.example.com",
+        origin: "https://evil.example",
+      }),
+      res: {} as ServerResponse,
+      auth: {
+        mode: "trusted-proxy",
+        allowTailscale: false,
+        trustedProxy: { userHeader: "x-user" },
+      },
+      trustedProxies: ["127.0.0.1"],
+    });
+
+    const [authParams] = vi.mocked(authorizeHttpGatewayConnect).mock.calls.at(-1) ?? [];
+    if (authParams === undefined) {
+      throw new Error("Expected HTTP gateway auth to be called");
+    }
+    expect(authParams.browserOriginPolicy).toEqual({
+      requestHost: "gateway.example.com",
+      origin: "https://evil.example",
+      allowedOrigins: ["https://control.example.com"],
+      allowHostHeaderOriginFallback: false,
     });
   });
 

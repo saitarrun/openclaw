@@ -1,21 +1,17 @@
-import { vi } from "vitest";
+// Memory Core plugin module implements embedding mocks behavior.
+import { vi, type Mock } from "vitest";
 import "./test-runtime-mocks.js";
 
 // Avoid exporting vitest mock types (TS2742 under pnpm + d.ts emit).
-// oxlint-disable-next-line typescript/no-explicit-any
-type AnyMock = any;
+type EmbedBatchMock = Mock<(texts: string[]) => Promise<number[][]>>;
 
 const hoisted = vi.hoisted(() => ({
   embedBatch: vi.fn(async (texts: string[]) => texts.map(() => [0, 1, 0])),
   embedQuery: vi.fn(async () => [0, 1, 0]),
 }));
 
-export function getEmbedBatchMock(): AnyMock {
+export function getEmbedBatchMock(): EmbedBatchMock {
   return hoisted.embedBatch;
-}
-
-export function getEmbedQueryMock(): AnyMock {
-  return hoisted.embedQuery;
 }
 
 export function resetEmbeddingMocks(): void {
@@ -26,6 +22,10 @@ export function resetEmbeddingMocks(): void {
 }
 
 vi.mock("./embeddings.js", () => ({
+  resolveEmbeddingProviderAdapterId: (providerId: string) => providerId,
+  resolveEmbeddingProviderAdapterTransport: (providerId: string) =>
+    providerId === "local" ? "local" : "remote",
+  resolveEmbeddingProviderIndexIdentity: () => undefined,
   createEmbeddingProvider: async () => ({
     requestedProvider: "openai",
     provider: {

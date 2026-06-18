@@ -1,10 +1,11 @@
+// Matrix plugin module implements threads behavior.
 import { resolveThreadSessionKeys } from "openclaw/plugin-sdk/routing";
 import type { MatrixRawEvent, RoomMessageEventContent } from "./types.js";
 import { RelationType } from "./types.js";
 
-export type MatrixThreadReplies = "off" | "inbound" | "always";
+type MatrixThreadReplies = "off" | "inbound" | "always";
 
-export type MatrixThreadRouting = {
+type MatrixThreadRouting = {
   threadId?: string;
 };
 
@@ -43,7 +44,6 @@ export function resolveMatrixThreadRouting(params: {
   dmThreadReplies?: MatrixThreadReplies;
   messageId: string;
   threadRootId?: string;
-  isThreadRoot?: boolean;
 }): MatrixThreadRouting {
   const effectiveThreadReplies =
     params.isDirectMessage && params.dmThreadReplies !== undefined
@@ -51,9 +51,7 @@ export function resolveMatrixThreadRouting(params: {
       : params.threadReplies;
   const messageId = params.messageId.trim();
   const threadRootId = params.threadRootId?.trim();
-  const isThreadRoot = params.isThreadRoot === true;
-  const inboundThreadId =
-    threadRootId && threadRootId !== messageId && !isThreadRoot ? threadRootId : undefined;
+  const inboundThreadId = threadRootId && threadRootId !== messageId ? threadRootId : undefined;
   const threadId =
     effectiveThreadReplies === "off"
       ? undefined

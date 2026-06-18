@@ -1,7 +1,13 @@
+// Gateway HTTP endpoint helpers.
+// Wraps common POST JSON method, auth, scope, and body handling.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AuthRateLimiter } from "./auth-rate-limit.js";
 import type { ResolvedGatewayAuth } from "./auth.js";
-import { readJsonBodyOrError, sendJson, sendMethodNotAllowed } from "./http-common.js";
+import {
+  readJsonBodyOrError,
+  sendMethodNotAllowed,
+  sendMissingScopeForbidden,
+} from "./http-common.js";
 import {
   authorizeGatewayHttpRequestOrReply,
   type AuthorizedGatewayHttpRequest,
@@ -9,6 +15,7 @@ import {
 } from "./http-utils.js";
 import { authorizeOperatorScopesForMethod } from "./method-scopes.js";
 
+/** Handles a gateway POST JSON endpoint and returns the parsed body when authorized. */
 export async function handleGatewayPostJsonEndpoint(
   req: IncomingMessage,
   res: ServerResponse,
@@ -20,9 +27,13 @@ export async function handleGatewayPostJsonEndpoint(
     allowRealIpFallback?: boolean;
     rateLimiter?: AuthRateLimiter;
     requiredOperatorMethod?: "chat.send" | (string & Record<never, never>);
+    resolveOperatorScopes?: (
+      req: IncomingMessage,
+      requestAuth: AuthorizedGatewayHttpRequest,
+    ) => string[];
   },
 ): Promise<false | { body: unknown; requestAuth: AuthorizedGatewayHttpRequest } | undefined> {
-  const url = new URL(req.url ?? "/", `http://${req.headers.host || "localhost"}`);
+  const url = new URL(req.url ?? "/", "http://localhost");
   if (url.pathname !== opts.pathname) {
     return false;
   }
@@ -45,19 +56,15 @@ export async function handleGatewayPostJsonEndpoint(
   }
 
   if (opts.requiredOperatorMethod) {
-    const requestedScopes = resolveTrustedHttpOperatorScopes(req, requestAuth);
+    const requestedScopes =
+      opts.resolveOperatorScopes?.(req, requestAuth) ??
+      resolveTrustedHttpOperatorScopes(req, requestAuth);
     const scopeAuth = authorizeOperatorScopesForMethod(
       opts.requiredOperatorMethod,
       requestedScopes,
     );
     if (!scopeAuth.allowed) {
-      sendJson(res, 403, {
-        ok: false,
-        error: {
-          type: "forbidden",
-          message: `missing scope: ${scopeAuth.missingScope}`,
-        },
-      });
+      sendMissingScopeForbidden(res, scopeAuth.missingScope);
       return undefined;
     }
   }
