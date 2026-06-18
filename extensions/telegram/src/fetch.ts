@@ -473,6 +473,13 @@ function shouldUseTelegramTransportFallback(err: unknown): boolean {
         : "",
     codes: collectErrorCodes(err),
   };
+  // EADDRNOTAVAIL is a local kernel-level failure (source address/port cannot be
+  // assigned). Rotating remote IPs cannot resolve it, and retrying generates
+  // misleading "DNS-resolved IP unreachable" logs when the real cause is
+  // ephemeral port exhaustion or a network extension blocking outbound sockets.
+  if (ctx.codes.has("EADDRNOTAVAIL")) {
+    return false;
+  }
   const hasFetchFailedEnvelope = ctx.message.includes("fetch failed");
   const hasKnownNetworkCode = FALLBACK_RETRY_ERROR_CODES.some((code) => ctx.codes.has(code));
   return hasKnownNetworkCode || (hasFetchFailedEnvelope && ctx.codes.size === 0);
@@ -840,6 +847,11 @@ export function resolveTelegramTransport(
       } catch (caught) {
         err = caught;
         if (!shouldUseTelegramTransportFallback(err)) {
+          if (collectErrorCodes(err).has("EADDRNOTAVAIL")) {
+            log.warn(
+              `telegram fetch: local address unavailable (EADDRNOTAVAIL) — check ephemeral port exhaustion or network extension policies; IP rotation cannot help (codes=${formatErrorCodes(err)})`,
+            );
+          }
           throw err;
         }
         recordAttemptFailure(attemptIndex, err);
