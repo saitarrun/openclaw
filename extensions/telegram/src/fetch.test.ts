@@ -1193,6 +1193,55 @@ describe("resolveTelegramFetch", () => {
     expect(undiciFetch).toHaveBeenCalledTimes(1);
   });
 
+  it("does not retry on EADDRNOTAVAIL and logs a diagnostic warning", async () => {
+    const fetchError = buildFetchFallbackError("EADDRNOTAVAIL");
+    undiciFetch.mockRejectedValue(fetchError);
+
+    const resolved = resolveTelegramFetchOrThrow(undefined, {
+      network: {
+        autoSelectFamily: true,
+      },
+    });
+
+    await expect(resolved("https://api.telegram.org/botx/sendMessage")).rejects.toThrow(
+      "fetch failed",
+    );
+
+    expect(undiciFetch).toHaveBeenCalledTimes(1);
+    expectLoggerMessageContaining(loggerWarn, "EADDRNOTAVAIL");
+    expectNoLoggerMessageContaining(loggerWarn, "DNS-resolved IP unreachable");
+  });
+
+  it("does not retry on EADDRNOTAVAIL wrapped in UND_ERR_SOCKET", async () => {
+    // In practice undici wraps EADDRNOTAVAIL in a UND_ERR_SOCKET error.
+    // UND_ERR_SOCKET is in FALLBACK_RETRY_ERROR_CODES, so without the explicit
+    // EADDRNOTAVAIL exclusion this path would trigger useless IP-rotation retries.
+    const addrErr = Object.assign(new Error("connect EADDRNOTAVAIL"), {
+      code: "EADDRNOTAVAIL",
+    });
+    const socketErr = Object.assign(new Error("UND_ERR_SOCKET"), {
+      code: "UND_ERR_SOCKET",
+      cause: addrErr,
+    });
+    const fetchError = Object.assign(new TypeError("fetch failed"), { cause: socketErr });
+    undiciFetch.mockRejectedValue(fetchError);
+
+    const resolved = resolveTelegramFetchOrThrow(undefined, {
+      network: {
+        autoSelectFamily: true,
+        dnsResultOrder: "ipv4first",
+      },
+    });
+
+    await expect(resolved("https://api.telegram.org/botx/sendMessage")).rejects.toThrow(
+      "fetch failed",
+    );
+
+    expect(undiciFetch).toHaveBeenCalledTimes(1);
+    expectLoggerMessageContaining(loggerWarn, "EADDRNOTAVAIL");
+    expectNoLoggerMessageContaining(loggerWarn, "DNS-resolved IP unreachable");
+  });
+
   it("retries sticky fallback when the local network is down during connect", async () => {
     undiciFetch
       .mockRejectedValueOnce(buildFetchFallbackError("ENETDOWN"))
